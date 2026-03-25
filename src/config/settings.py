@@ -30,7 +30,7 @@ OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
 
 # ── Bocha Search ─────────────────────────────────────────────
 
-BOCHA_API_KEY: str = os.getenv("bocha_API_KEY", "")
+BOCHA_API_KEY: str = os.getenv("BOCHA_API_KEY", "")
 BOCHA_SEARCH_URL: str = "https://api.bochaai.com/v1/web-search"
 BOCHA_MAX_QUERIES_PER_TOPIC: int = 6
 
@@ -48,9 +48,7 @@ AKSHARE_REQUEST_DELAY: float = 1.0
 # ── HTTP (FastAPI) ───────────────────────────────────────────
 
 # Comma-separated origins; use "*" for dev (allow all). Production: https://your.domain
-CORS_ORIGINS: list[str] = [
-    o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()
-] or ["*"]
+CORS_ORIGINS: list[str] = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()] or ["*"]
 
 # ── Retrieval ────────────────────────────────────────────────
 

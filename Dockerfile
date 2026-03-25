@@ -1,10 +1,10 @@
 # ── Build stage: install deps + build frontend ──────────────────
 FROM python:3.12-slim AS builder
 
-# WeasyPrint 系统依赖
+# WeasyPrint 系统依赖 (Debian Bookworm)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs npm \
-    libpangocairo-1.0-0 libpango1.0-0 libcairo2 libgdk-pixbuf2.0-0 \
+    libpangocairo-1.0-0 libpango-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 \
     libffi-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
@@ -25,9 +25,9 @@ RUN cd frontend && npm run build
 # ── Runtime stage ───────────────────────────────────────────────
 FROM python:3.12-slim
 
-# WeasyPrint 运行时依赖
+# WeasyPrint 运行时依赖 (Debian Bookworm)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpangocairo-1.0-0 libpango1.0-0 libcairo2 libgdk-pixbuf2.0-0 \
+    libpangocairo-1.0-0 libpango-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
