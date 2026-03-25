@@ -12,6 +12,14 @@
 - **Web 控制台**：SSE 实时事件流，流水线可视化，历史管理，协作式取消
 - **质量检查**：自动检测引用缺失、内容过短等问题
 
+## 演示
+
+操作录屏（仓库根目录 [`演示.mov`](./演示.mov)，通过 [Git LFS](https://git-lfs.com/) 存储；克隆后若只看到文本指针文件，请先安装 Git LFS 并执行 `git lfs pull`）：
+
+<video src="https://github.com/songhuichen7-jpg/agentic_research/raw/master/%E6%BC%94%E7%A4%BA.mov" controls width="100%"></video>
+
+若上方无法内嵌播放，可在 [GitHub 上的该文件页面](https://github.com/songhuichen7-jpg/agentic_research/blob/master/%E6%BC%94%E7%A4%BA.mov) 在线观看或下载。
+
 ## 架构
 
 ```
