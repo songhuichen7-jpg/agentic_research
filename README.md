@@ -14,12 +14,14 @@
 
 ## 演示
 
-GitHub 对**体积过大**的媒体会在网页里提示 *「we can't show files that are this big right now」*，无法在浏览器里直接预览；仓库主页的 README 对视频内嵌支持也很有限。因此提供两档文件：
+GitHub 对较大的视频常无法在网页里直接预览。仓库内提供 **节选约 45 秒、约 400 KB** 的 [`docs/demo-preview.mp4`](./docs/demo-preview.mp4)，体积足够小，一般在 [文件页](https://github.com/songhuichen7-jpg/agentic_research/blob/master/docs/demo-preview.mp4) 可在线播放；README 下方为封面图（点击可打开同一视频页）。
 
-| 说明 | 文件 | 在 GitHub 上 |
-|------|------|----------------|
-| **在线预览（推荐）** | [`docs/demo-preview.mp4`](./docs/demo-preview.mp4) | 压缩至约 6 MB，[在文件页可在线播放](https://github.com/songhuichen7-jpg/agentic_research/blob/master/docs/demo-preview.mp4) |
-| 原画质录屏 | [`演示.mov`](./演示.mov) | 约 165 MB（[Git LFS](https://git-lfs.com/)），网页通常无法预览，请 [下载](https://github.com/songhuichen7-jpg/agentic_research/raw/master/%E6%BC%94%E7%A4%BA.mov) 后本地播放，或克隆后执行 `git lfs pull` |
+[![演示节选（封面帧）](./docs/demo-poster.jpg)](https://github.com/songhuichen7-jpg/agentic_research/blob/master/docs/demo-preview.mp4)
+
+| 说明 | 文件 | 备注 |
+|------|------|------|
+| **节选预览** | [`docs/demo-preview.mp4`](./docs/demo-preview.mp4) | 前 ~45 秒、H.264，便于在 GitHub 上播放 |
+| **完整原片** | [`演示.mov`](./演示.mov) | 约 165 MB（[Git LFS](https://git-lfs.com/)），请 [下载](https://github.com/songhuichen7-jpg/agentic_research/raw/master/%E6%BC%94%E7%A4%BA.mov) 后本地播放，或克隆后 `git lfs pull` |
 
 ## 架构
 
