@@ -14,11 +14,11 @@
 
 ## 演示
 
-操作录屏（仓库根目录 [`演示.mov`](./演示.mov)，通过 [Git LFS](https://git-lfs.com/) 存储；克隆后若只看到文本指针文件，请先安装 Git LFS 并执行 `git lfs pull`）：
+GitHub 仓库主页的 README **不支持内嵌播放** `.mov` 视频（会忽略 `<video>` 标签），请在下述页面打开后使用 GitHub 自带的播放器观看或下载：
 
-<video src="https://github.com/songhuichen7-jpg/agentic_research/raw/master/%E6%BC%94%E7%A4%BA.mov" controls width="100%"></video>
+**[▶ 在浏览器中观看演示（演示.mov）](https://github.com/songhuichen7-jpg/agentic_research/blob/master/%E6%BC%94%E7%A4%BA.mov)**
 
-若上方无法内嵌播放，可在 [GitHub 上的该文件页面](https://github.com/songhuichen7-jpg/agentic_research/blob/master/%E6%BC%94%E7%A4%BA.mov) 在线观看或下载。
+本地克隆后若该文件只有几行文本（LFS 指针），请先安装 [Git LFS](https://git-lfs.com/) 并执行 `git lfs pull` 再播放。
 
 ## 架构
 
