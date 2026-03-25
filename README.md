@@ -2,6 +2,8 @@
 
 自动化行业研报生成系统，基于 LangGraph 编排，支持 LLM 流式写作、多源数据采集、智能图表生成。
 
+**示例研报（PDF）：** [docs/sample-report.pdf](./docs/sample-report.pdf)
+
 ## 功能
 
 - **多源数据采集**：东方财富行业研报 + 博查网页搜索，自动去重与缓存
