@@ -1,7 +1,7 @@
 """
 EastMoney (东方财富) industry research report connector.
 
-Migrated and refactored from AIDM_AFAC_Agent/v1_version/get_dfcf_research_info.py.
+EastMoney industry research report connector.
 Key improvements:
   - Unified SourceConnector interface
   - Configurable rate limiting instead of hard-coded sleep

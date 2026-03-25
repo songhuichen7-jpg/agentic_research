@@ -1,12 +1,11 @@
 # 多模态行业研报生成 Agent — 开发计划
 
 > 基于 `multimodal_research_agent_system_design.md` 制定
-> 参考项目: `AIDM_AFAC_Agent`
 > 总工期预估: **6 周**（Phase 1～3）**+ Phase 4（Sprint 7）Web UI，约 2～3 周**（分 7a～7d 四个子阶段，见下文）
 
 ---
 
-## 当前实现状态（与仓库对齐，2026-03-25）
+## 当前实现状态
 
 **主线状态：** Phase 0～Phase 3（Sprint 1～6）按本计划验收项已全部打通；一键脚本 `scripts/run_report.py` 与 FastAPI `src/api/server.py` 均可驱动同一套 LangGraph 流程。
 
@@ -126,10 +125,10 @@ research/   （本仓库根目录）
 
 **交付物:** 可独立运行的东方财富研报 Connector → `src/connectors/eastmoney.py`
 
-- ✅ 从 `AIDM_AFAC_Agent` 迁移并重构:
+- ✅ 数据采集模块:
   - `get_dfcf_research_info.py` → `src/connectors/eastmoney.py`
   - 统一为 `SourceConnector` Protocol 接口: `search()`, `fetch()`, `normalize()`
-- ✅ 改进点（相对参考项目）:
+- ✅ 改进点:
   - 移除硬编码 sleep，改为可配置的速率限制器
   - 加入行业代码自动匹配（LLM 辅助从主题 → 行业代码）
   - 返回统一 `Document` 对象，而非 raw dict
@@ -140,7 +139,7 @@ research/   （本仓库根目录）
 
 **交付物:** AkShare Connector → `src/connectors/akshare_connector.py`
 
-- ✅ 从 `AIDM_AFAC_Agent` 迁移并重构:
+- ✅ 数据源接入:
   - `get_stock_info.py` 等 → `src/connectors/akshare_connector.py`
 - ✅ 封装为 `SourceConnector` 接口
 - ✅ 支持获取: A 股/港股历史数据、行业板块、DataFrame → Document 转换
@@ -638,7 +637,7 @@ flowchart TB
 
 ## 可复用参考项目资产
 
-以下代码可从 `AIDM_AFAC_Agent` 直接迁移并重构:
+以下代码经过迁移并重构:
 
 | 参考文件 | 迁移目标 | 改造要点 | 状态 |
 |---------|---------|---------|------|

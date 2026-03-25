@@ -1,7 +1,7 @@
 """
 AkShare connector for structured market/company data.
 
-Migrated from AIDM_AFAC_Agent get_stock_info.py / get_financial_data_annual.py / get_company_intro.py.
+Data source connector for A-share/HK stock data.
 Provides a unified SourceConnector interface over AkShare's diverse APIs.
 """
 
