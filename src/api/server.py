@@ -134,7 +134,13 @@ async def _sse_event_generator(run_id: str):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    from src.config.settings import OPENROUTER_API_KEY, BOCHA_API_KEY
+
+    return {
+        "status": "ok",
+        "openrouter_configured": bool(OPENROUTER_API_KEY),
+        "bocha_configured": bool(BOCHA_API_KEY),
+    }
 
 
 @app.post("/api/report/run", response_model=RunResponse)
