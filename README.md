@@ -14,11 +14,12 @@
 
 ## 演示
 
-GitHub 仓库主页的 README **不支持内嵌播放** `.mov` 视频（会忽略 `<video>` 标签），请在下述页面打开后使用 GitHub 自带的播放器观看或下载：
+GitHub 对**体积过大**的媒体会在网页里提示 *「we can't show files that are this big right now」*，无法在浏览器里直接预览；仓库主页的 README 对视频内嵌支持也很有限。因此提供两档文件：
 
-**[▶ 在浏览器中观看演示（演示.mov）](https://github.com/songhuichen7-jpg/agentic_research/blob/master/%E6%BC%94%E7%A4%BA.mov)**
-
-本地克隆后若该文件只有几行文本（LFS 指针），请先安装 [Git LFS](https://git-lfs.com/) 并执行 `git lfs pull` 再播放。
+| 说明 | 文件 | 在 GitHub 上 |
+|------|------|----------------|
+| **在线预览（推荐）** | [`docs/demo-preview.mp4`](./docs/demo-preview.mp4) | 压缩至约 6 MB，[在文件页可在线播放](https://github.com/songhuichen7-jpg/agentic_research/blob/master/docs/demo-preview.mp4) |
+| 原画质录屏 | [`演示.mov`](./演示.mov) | 约 165 MB（[Git LFS](https://git-lfs.com/)），网页通常无法预览，请 [下载](https://github.com/songhuichen7-jpg/agentic_research/raw/master/%E6%BC%94%E7%A4%BA.mov) 后本地播放，或克隆后执行 `git lfs pull` |
 
 ## 架构
 
