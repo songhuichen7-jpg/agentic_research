@@ -21,6 +21,8 @@ export interface NodeSlice {
   title: string;
   detail?: string;
   error?: string;
+  startedAt?: number;
+  endedAt?: number;
 }
 
 export type PipelineStatus = "idle" | "running" | "done" | "error" | "cancelled" | "cancelling";
@@ -30,6 +32,7 @@ export interface PipelineState {
   pipelineStatus: PipelineStatus;
   pipelineDetail?: string;
   pipelineError?: string;
+  pipelineStartedAt?: number;
   log: PipelineEvent[];
 }
 
@@ -125,6 +128,15 @@ export function pipelineReducer(state: PipelineState, action: PipelineAction): P
       pipelineStatus = "running";
       pipelineDetail = ev.detail;
       pipelineError = undefined;
+      return {
+        ...state,
+        nodes: state.nodes,
+        pipelineStatus,
+        pipelineDetail,
+        pipelineError,
+        pipelineStartedAt: Date.now(),
+        log,
+      };
     } else if (ev.phase === "end") {
       pipelineStatus = "done";
       pipelineDetail = ev.detail;
@@ -163,18 +175,24 @@ export function pipelineReducer(state: PipelineState, action: PipelineAction): P
   let error = prev.error;
   const title = ev.title || prev.title;
 
+  let startedAt = prev.startedAt;
+  let endedAt = prev.endedAt;
+
   if (ev.phase === "start") {
     status = "running";
     detail = ev.detail;
     error = undefined;
+    startedAt = Date.now();
+    endedAt = undefined;
   } else if (ev.phase === "end") {
     status = "done";
     detail = ev.detail;
+    endedAt = Date.now();
   } else if (ev.phase === "error") {
     status = "error";
     error = ev.error ?? ev.title;
+    endedAt = Date.now();
   } else if (ev.phase === "detail") {
-    // Keep current status; update detail to show latest progress
     detail = ev.detail || prev.detail;
   }
 
@@ -182,7 +200,7 @@ export function pipelineReducer(state: PipelineState, action: PipelineAction): P
     ...state,
     nodes: {
       ...state.nodes,
-      [id]: { status, title, detail, error },
+      [id]: { status, title, detail, error, startedAt, endedAt },
     },
     log,
   };

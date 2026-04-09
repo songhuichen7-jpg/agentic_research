@@ -45,9 +45,18 @@ class EvidenceStore:
         Uses Chroma's built-in default embedding function (all-MiniLM-L6-v2)
         which is good enough for a first pass and avoids external API calls.
         """
+        # Log per-document chunking stats for debugging
         chunks = chunk_documents(docs)
+        empty_docs = [d.title[:40] for d in docs if not (d.content_text or "").strip()]
+        if empty_docs:
+            logger.warning("Documents with empty content_text: %s", empty_docs)
+
         if not chunks:
-            logger.warning("No chunks produced from %d documents", len(docs))
+            logger.error(
+                "ZERO chunks produced from %d documents (%d had empty content). "
+                "Evidence store will be empty — downstream retrieval will fail.",
+                len(docs), len(empty_docs),
+            )
             return []
 
         # Deduplicate against already-stored ids

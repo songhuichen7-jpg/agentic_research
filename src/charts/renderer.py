@@ -48,25 +48,36 @@ _setup_chinese_font()
 
 # ── Style constants ──────────────────────────────────────
 
-# Modern palette (inspired by Tailwind / Vercel / Linear)
+# Premium palette — muted, professional tones (inspired by McKinsey / Goldman reports)
 _PALETTE = [
+    "#2563EB",  # royal blue
+    "#0EA5E9",  # sky
     "#6366F1",  # indigo
-    "#F59E0B",  # amber
-    "#EF4444",  # red
-    "#10B981",  # emerald
-    "#3B82F6",  # blue
     "#8B5CF6",  # violet
-    "#EC4899",  # pink
-    "#14B8A6",  # teal
+    "#0D9488",  # teal
+    "#059669",  # emerald
+    "#D97706",  # amber
+    "#DC2626",  # red (for contrast)
 ]
 
-_LIGHT_BG = "#FAFBFF"
-_GRID_COLOR = "#E5E7EB"
-_TEXT_COLOR = "#1F2937"
-_TEXT_MUTED = "#9CA3AF"
-_SPINE_COLOR = "#D1D5DB"
+_PALETTE_LIGHT = [
+    "#DBEAFE",  # blue-100
+    "#E0F2FE",  # sky-100
+    "#E0E7FF",  # indigo-100
+    "#EDE9FE",  # violet-100
+    "#CCFBF1",  # teal-100
+    "#D1FAE5",  # emerald-100
+    "#FEF3C7",  # amber-100
+    "#FEE2E2",  # red-100
+]
 
-_DPI = 200
+_LIGHT_BG = "#FFFFFF"
+_GRID_COLOR = "#F1F5F9"
+_TEXT_COLOR = "#0F172A"
+_TEXT_MUTED = "#94A3B8"
+_SPINE_COLOR = "#E2E8F0"
+
+_DPI = 220
 _FIG_W = 11
 _FIG_H = 6.5
 
@@ -75,14 +86,12 @@ _FIG_H = 6.5
 
 
 def _apply_base_style(ax: plt.Axes) -> None:
-    """Clean, minimal axes style."""
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color(_SPINE_COLOR)
-    ax.spines["bottom"].set_color(_SPINE_COLOR)
-    ax.tick_params(colors=_TEXT_MUTED, labelsize=9.5)
+    """Clean, premium axes style."""
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.tick_params(colors=_TEXT_MUTED, labelsize=9, length=0, pad=8)
     ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda v, _: f"{v:g}"))
-    ax.grid(axis="y", color=_GRID_COLOR, linewidth=0.7, alpha=0.8)
+    ax.grid(axis="y", color=_GRID_COLOR, linewidth=0.8)
     ax.set_axisbelow(True)
 
 
@@ -113,23 +122,27 @@ def _value_labels(ax: plt.Axes, bars_or_points, values: list[float], fmt: str = 
 def _render_bar(spec: ChartSpec, ax: plt.Axes) -> None:
     n = len(spec.x)
     x = np.arange(n)
-    width = min(0.65, 0.85 - 0.03 * n)  # narrower when more bars
+    width = min(0.55, 0.75 - 0.025 * n)
 
-    colors = [_PALETTE[i % len(_PALETTE)] for i in range(n)]
+    # Use single color for uniform look, vary shade only when many bars
+    if n <= 6:
+        colors = [_PALETTE[0]] * n
+    else:
+        colors = [_PALETTE[i % len(_PALETTE)] for i in range(n)]
 
-    bars = ax.bar(x, spec.y, color=colors, width=width, edgecolor="white", linewidth=0.8, zorder=3, alpha=0.92)
+    bars = ax.bar(x, spec.y, color=colors, width=width, zorder=3, alpha=0.88,
+                  edgecolor="none", linewidth=0)
 
-    # Rounded top corners look via slight radius on bar patches
-    for bar in bars:
-        bar.set_linewidth(0)
+    # Subtle shadow bars behind
+    ax.bar(x + 0.02, spec.y, color="#00000008", width=width, zorder=2)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(spec.x, rotation=30 if n > 5 else 0, ha="right" if n > 5 else "center")
+    ax.set_xticklabels(spec.x, rotation=30 if n > 5 else 0,
+                       ha="right" if n > 5 else "center", fontsize=9)
     _value_labels(ax, bars, spec.y)
 
-    # Y axis pad
     ymax = max(spec.y) if spec.y else 1
-    ax.set_ylim(0, ymax * 1.22)
+    ax.set_ylim(0, ymax * 1.25)
 
 
 def _render_line(spec: ChartSpec, ax: plt.Axes) -> None:
@@ -137,31 +150,33 @@ def _render_line(spec: ChartSpec, ax: plt.Axes) -> None:
     x = np.arange(n)
     y = np.array(spec.y)
     color = _PALETTE[0]
+    color_light = _PALETTE_LIGHT[0]
 
-    # Area fill
-    ax.fill_between(x, y, alpha=0.08, color=color, zorder=2)
+    # Gradient area fill
+    ax.fill_between(x, y, alpha=0.12, color=color_light, zorder=2)
 
-    # Line
+    # Main line
     ax.plot(
-        x,
-        y,
+        x, y,
         color=color,
-        linewidth=2.5,
+        linewidth=2.8,
         marker="o",
-        markersize=7,
+        markersize=8,
         markerfacecolor="white",
         markeredgecolor=color,
-        markeredgewidth=2,
+        markeredgewidth=2.5,
         zorder=3,
+        solid_capstyle="round",
     )
 
     _value_labels(ax, zip(x, y), spec.y)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(spec.x, rotation=30 if n > 5 else 0, ha="right" if n > 5 else "center")
+    ax.set_xticklabels(spec.x, rotation=30 if n > 5 else 0,
+                       ha="right" if n > 5 else "center", fontsize=9)
 
     ymin, ymax = min(spec.y), max(spec.y)
-    margin = (ymax - ymin) * 0.15 if ymax != ymin else ymax * 0.2
+    margin = (ymax - ymin) * 0.18 if ymax != ymin else ymax * 0.25
     ax.set_ylim(max(0, ymin - margin), ymax + margin)
 
 
@@ -171,26 +186,32 @@ def _render_pie(spec: ChartSpec, ax: plt.Axes) -> None:
 
     wedges, texts, autotexts = ax.pie(
         spec.y,
-        labels=None,  # We'll add a legend instead
-        autopct=lambda p: f"{p:.1f}%" if p >= 5 else "",
+        labels=None,
+        autopct=lambda p: f"{p:.1f}%" if p >= 4 else "",
         colors=colors,
         startangle=90,
-        pctdistance=0.72,
-        wedgeprops=dict(width=0.45, edgecolor="white", linewidth=2),
-        # Donut style
+        pctdistance=0.78,
+        wedgeprops=dict(width=0.38, edgecolor="white", linewidth=2.5),
     )
 
     for t in autotexts:
-        t.set_fontsize(8.5)
+        t.set_fontsize(8)
         t.set_fontweight("600")
-        t.set_color("white")
+        t.set_color(_TEXT_COLOR)
 
-    # Legend on the right
-    labels = [f"{name}  ({val:g})" for name, val in zip(spec.x, spec.y)]
-    ax.legend(wedges, labels, loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=9, frameon=False)
+    # Clean legend on the right
+    labels = [f"{name}  {val:g}" for name, val in zip(spec.x, spec.y)]
+    legend = ax.legend(
+        wedges, labels, loc="center left", bbox_to_anchor=(1.02, 0.5),
+        fontsize=9, frameon=False, handlelength=1.2, handleheight=1.2,
+        labelspacing=1.0,
+    )
+    for text in legend.get_texts():
+        text.set_color(_TEXT_COLOR)
 
     # Center label
-    ax.text(0, 0, f"总计\n{total:g}", ha="center", va="center", fontsize=11, fontweight="bold", color=_TEXT_COLOR)
+    ax.text(0, 0, f"总计\n{total:g}", ha="center", va="center",
+            fontsize=12, fontweight="700", color=_TEXT_COLOR)
 
 
 def _render_stacked_bar(spec: ChartSpec, ax: plt.Axes) -> None:
@@ -505,25 +526,27 @@ def render_chart(spec: ChartSpec, output_dir: str | Path | None = None) -> Chart
         renderer(spec, ax)
         _apply_base_style(ax)
 
-        # Title
-        ax.set_title(spec.title, fontsize=15, fontweight="bold", color=_TEXT_COLOR, pad=18, loc="left")
+        # Title — bold, left-aligned
+        ax.set_title(spec.title, fontsize=14, fontweight="700", color=_TEXT_COLOR, pad=20, loc="left")
 
-        # Y label (only for data charts)
+        # Unit label (top-left, subtle)
         data_chart_types = (ChartType.BAR, ChartType.LINE, ChartType.STACKED_BAR)
         if spec.unit and spec.chart_type in data_chart_types:
-            ax.set_ylabel(spec.unit, fontsize=10, color=_TEXT_MUTED, labelpad=8)
+            ax.set_ylabel(spec.unit, fontsize=9, color=_TEXT_MUTED, labelpad=10)
 
-        # Footer
+        # Footer — caption + source
         footer_parts = []
         if spec.caption:
             footer_parts.append(spec.caption)
         if spec.source_refs:
             footer_parts.append(f"数据来源: {', '.join(spec.source_refs)}")
         if footer_parts:
-            fig.text(0.02, 0.01, "  |  ".join(footer_parts), ha="left", fontsize=7.5, color=_TEXT_MUTED)
+            fig.text(0.03, 0.01, "  |  ".join(footer_parts), ha="left",
+                     fontsize=7.5, color=_TEXT_MUTED, style="italic")
 
-        fig.tight_layout(rect=[0, 0.035, 1, 1])
-        fig.savefig(file_path, dpi=_DPI, bbox_inches="tight", facecolor=fig.get_facecolor())
+        fig.tight_layout(rect=[0, 0.035, 1, 0.97])
+        fig.savefig(file_path, dpi=_DPI, bbox_inches="tight",
+                    facecolor=fig.get_facecolor(), pad_inches=0.3)
         plt.close(fig)
 
         logger.info("Rendered: %s → %s", spec.title, file_path.name)

@@ -44,7 +44,10 @@ class HybridRetriever:
         """Build (or rebuild) the BM25 index from the evidence store."""
         self._bm25_chunks = list(chunks) if chunks else self._store.all_chunks()
         if not self._bm25_chunks:
-            logger.warning("No chunks available for BM25 index")
+            logger.error(
+                "No chunks available for BM25 index — all retrieval will fall back to "
+                "vector-only search, which may also be empty."
+            )
             return
         tokenised = [list(jieba.cut(c.chunk_text)) for c in self._bm25_chunks]
         self._bm25 = BM25Okapi(tokenised)
@@ -136,6 +139,15 @@ class HybridRetriever:
         # Deduplicate
         deduped = self._deduplicate(merged)[:top_k]
 
-        logger.info("Hybrid retrieval for '%s': BM25=%d, Vector=%d → dedup → %d",
-                     query[:40], len(bm25_results), len(vector_results), len(deduped))
+        if not deduped:
+            logger.warning(
+                "Retrieval returned ZERO results for '%s' (BM25=%d, Vector=%d) "
+                "— section will be written without evidence",
+                query[:40], len(bm25_results), len(vector_results),
+            )
+        else:
+            logger.info(
+                "Hybrid retrieval for '%s': BM25=%d, Vector=%d → dedup → %d",
+                query[:40], len(bm25_results), len(vector_results), len(deduped),
+            )
         return deduped

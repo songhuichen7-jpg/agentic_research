@@ -159,6 +159,26 @@ def node_plan(state: WorkflowState) -> dict:
         raise
 
 
+def _build_search_queries(raw_topic: str, sections: list[SectionPlan]) -> list[str]:
+    """Build concise search queries from topic + section titles.
+
+    Long queries return zero results from search APIs, so we truncate
+    section titles and ensure query diversity.
+    """
+    queries = [raw_topic]
+    for sec in sections[:4]:
+        # Truncate long titles to first 15 chars to keep queries concise
+        title_short = sec.title[:15].rstrip("，。、：")
+        q = f"{raw_topic} {title_short}"
+        if q not in queries:
+            queries.append(q)
+    # Add a broad industry query as fallback
+    fallback = f"{raw_topic} 行业分析 市场规模"
+    if fallback not in queries:
+        queries.append(fallback)
+    return queries
+
+
 def node_web_search(state: WorkflowState) -> dict:
     """Supplement documents with Bocha web search results based on the plan."""
     run_id = state.get("run_id", "")
@@ -170,17 +190,15 @@ def node_web_search(state: WorkflowState) -> dict:
     existing_docs = state.get("documents", [])
 
     try:
-        # Generate shorter, natural search queries (long titles yield zero results)
         raw_topic = state["user_query"]
-        queries = [raw_topic]
-        for sec in sections[:4]:
-            queries.append(f"{raw_topic} {sec.title}")
+        queries = _build_search_queries(raw_topic, sections)
+        logger.info("Web search queries: %s", [q[:40] for q in queries])
 
         try:
             bocha = BochaSearchConnector(delay=1.0, fetch_fulltext=True)
             web_docs = bocha.search_and_fetch(
                 queries,
-                results_per_query=5,
+                results_per_query=8,
                 emit_fn=lambda d: emit_node_detail(run_id, "web_search", d),
             )
         except Exception as e:
@@ -193,8 +211,8 @@ def node_web_search(state: WorkflowState) -> dict:
                 insert_document(
                     doc.doc_id, doc.source_name, doc.title, doc.url, doc.published_at, len(doc.content_text), run_id
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("DB insert failed for web doc '%s': %s", doc.title[:30], e)
 
         merged = existing_docs + web_docs
         logger.info("Web search added %d documents (total: %d)", len(web_docs), len(merged))
@@ -206,29 +224,64 @@ def node_web_search(state: WorkflowState) -> dict:
 
 
 def node_build_evidence(state: WorkflowState) -> dict:
-    """Chunk documents and build the evidence store."""
+    """Chunk documents and build the evidence store.
+
+    Includes data quality validation: logs warnings for low document/chunk
+    counts and filters out documents with empty content before chunking.
+    """
     run_id = state.get("run_id", "default")
     emit_node_start(run_id, "build_evidence")
     logger.info("=== Node: Build Evidence Store ===")
 
     try:
+        raw_docs = state.get("documents", [])
+
+        # ── Data validation: filter out empty-content documents ──
+        valid_docs = [d for d in raw_docs if d.content_text and len(d.content_text.strip()) >= 50]
+        skipped = len(raw_docs) - len(valid_docs)
+        if skipped > 0:
+            logger.warning(
+                "Filtered out %d/%d documents with insufficient content (<50 chars)",
+                skipped, len(raw_docs),
+            )
+            emit_node_detail(
+                run_id, "build_evidence",
+                f"过滤掉 {skipped} 篇无效文档（内容过短），剩余 {len(valid_docs)} 篇",
+            )
+
+        if not valid_docs:
+            msg = f"无有效文档可供分析（共 {len(raw_docs)} 篇文档全部内容为空）"
+            logger.error(msg)
+            emit_node_error(run_id, "build_evidence", msg)
+            raise RuntimeError(msg)
+
         store_dir = EVIDENCE_DIR / f"chroma_{run_id}"
         if store_dir.exists():
             shutil.rmtree(store_dir)
 
-        emit_node_detail(run_id, "build_evidence", f"正在分块 {len(state.get('documents', []))} 篇文档…")
+        emit_node_detail(run_id, "build_evidence", f"正在分块 {len(valid_docs)} 篇文档…")
         store = EvidenceStore(persist_dir=store_dir)
-        chunks = store.ingest_documents(state.get("documents", []))
-        logger.info("Evidence store: %d chunks", len(chunks))
+        chunks = store.ingest_documents(valid_docs)
+        logger.info("Evidence store: %d chunks from %d documents", len(chunks), len(valid_docs))
+
+        # ── Data sufficiency check ──
+        if len(chunks) < 5:
+            logger.warning(
+                "Low evidence: only %d chunks from %d documents — report quality may be poor",
+                len(chunks), len(valid_docs),
+            )
+            emit_node_detail(
+                run_id, "build_evidence",
+                f"警告：仅产生 {len(chunks)} 个证据块，数据量偏少，报告质量可能受限",
+            )
 
         emit_node_detail(run_id, "build_evidence", f"构建 BM25 索引 ({len(chunks)} chunks)")
-        # Stash store & retriever in state via a side-channel (not serialisable)
         _RUNTIME_CACHE["store"] = store
         retriever = HybridRetriever(store)
         retriever.build_bm25_index(chunks)
         _RUNTIME_CACHE["retriever"] = retriever
 
-        emit_node_end(run_id, "build_evidence", detail=f"{len(chunks)} chunks")
+        emit_node_end(run_id, "build_evidence", detail=f"{len(chunks)} chunks（来自 {len(valid_docs)} 篇文档）")
         return {"evidence_chunks": chunks}
     except Exception as e:
         emit_node_error(run_id, "build_evidence", str(e))
@@ -257,7 +310,7 @@ def node_write_sections(state: WorkflowState) -> dict:
             emit_node_detail(run_id, "write_sections", f"[{i + 1}/{len(sections)}] 开始「{sec.title}」")
             try:
                 query = f"{topic} {sec.title} {sec.objective}"
-                evidence = retriever.retrieve(query, top_k=6)
+                evidence = retriever.retrieve(query, top_k=10)
                 draft = write_section(topic, sec, evidence, run_id=run_id, node="write_sections")
                 drafted.append(draft)
             except Exception as e:
@@ -268,8 +321,18 @@ def node_write_sections(state: WorkflowState) -> dict:
                         title=sec.title,
                         markdown=f"*（本章节生成失败：{e}）*",
                         order=sec.order,
+                        evidence_count=0,
                     )
                 )
+
+        # Log evidence coverage summary
+        no_evidence = [d.title for d in drafted if d.evidence_count == 0]
+        if no_evidence:
+            logger.warning("Sections with ZERO evidence: %s", no_evidence)
+            emit_node_detail(
+                run_id, "write_sections",
+                f"警告：{len(no_evidence)} 个章节无证据支撑：{', '.join(no_evidence)}",
+            )
 
         emit_node_end(run_id, "write_sections", detail=f"{len(drafted)} 节")
         return {"drafted_sections": drafted}

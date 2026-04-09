@@ -43,6 +43,6 @@ COPY --from=builder /app/pyproject.toml ./
 RUN mkdir -p data/raw data/parsed data/evidence data/charts data/reports data/runs db cache
 
 ENV PATH="/app/.venv/bin:$PATH"
-EXPOSE $PORT
+EXPOSE 8080
 
-CMD uvicorn src.api.server:app --host 0.0.0.0 --port ${PORT:-8080} --log-level debug
+CMD ["sh", "-c", "uvicorn src.api.server:app --host 0.0.0.0 --port ${PORT:-8080} --log-level info"]

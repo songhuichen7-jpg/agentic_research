@@ -82,7 +82,8 @@ class RunEventBus:
         with cls._lock:
             cls._seq.pop(run_id, None)
             cls._buffers.pop(run_id, None)
-            cls._subscribers.pop(run_id, None)
+            # Preserve subscribers — SSE clients may already be connected
+            # between the POST response and the worker thread starting.
 
     @classmethod
     def publish(

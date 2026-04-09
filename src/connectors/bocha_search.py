@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from pathlib import Path
 
@@ -67,8 +68,12 @@ def bocha_web_search(
 
     cache = _cache_path(query)
     if cache.exists():
-        logger.info("Bocha cache hit: %s", query[:40])
-        return json.loads(cache.read_text("utf-8"))
+        cached = json.loads(cache.read_text("utf-8"))
+        if cached:  # Only use cache if it has results; retry empty ones
+            logger.info("Bocha cache hit (%d results): %s", len(cached), query[:40])
+            return cached
+        else:
+            logger.info("Bocha cache has empty results, retrying: %s", query[:40])
 
     payload = {
         "query": query,
@@ -115,18 +120,19 @@ def _fetch_page_text(url: str) -> str:
     try:
         resp = requests.get(url, headers=_HEADERS_FETCH, timeout=15)
         if resp.status_code != 200:
+            logger.warning("Page fetch HTTP %d for %s", resp.status_code, url[:80])
             return ""
         soup = BeautifulSoup(resp.text, "html.parser")
 
         # Remove noise
-        for tag in soup.find_all(["script", "style", "nav", "footer", "header", "aside"]):
+        for tag in soup.find_all(["script", "style", "nav", "footer", "header", "aside", "iframe", "noscript"]):
             tag.decompose()
 
-        # Try common content containers
+        # Try content containers from most specific to least
         content = (
             soup.find("article")
-            or soup.find("div", class_="content")
-            or soup.find("div", class_="article")
+            or soup.find("div", class_=re.compile(r"(article|content|post|entry|main|text|body)", re.I))
+            or soup.find("div", id=re.compile(r"(article|content|post|entry|main|text|body)", re.I))
             or soup.find("main")
             or soup.body
         )
@@ -134,10 +140,14 @@ def _fetch_page_text(url: str) -> str:
 
         # Truncate very long pages
         if len(text) > 8000:
+            logger.info("Truncated page text from %d to 8000 chars: %s", len(text), url[:60])
             text = text[:8000]
         return text
+    except requests.Timeout:
+        logger.warning("Page fetch timeout (15s) for %s", url[:80])
+        return ""
     except Exception as e:
-        logger.debug("Page fetch failed for %s: %s", url, e)
+        logger.warning("Page fetch failed for %s: %s", url[:80], e)
         return ""
 
 
@@ -150,6 +160,9 @@ class BochaSearchConnector:
     def __init__(self, delay: float = 1.0, fetch_fulltext: bool = True):
         self.delay = delay
         self.fetch_fulltext = fetch_fulltext
+
+    # Minimum content length to consider a document useful
+    MIN_CONTENT_LENGTH = 80
 
     def search_and_fetch(
         self,
@@ -165,6 +178,8 @@ class BochaSearchConnector:
         """
         seen_urls: set[str] = set()
         docs: list[Document] = []
+        skipped_empty = 0
+        fetch_failures = 0
         total_q = min(len(queries), BOCHA_MAX_QUERIES_PER_TOPIC)
 
         for i, q in enumerate(queries[:BOCHA_MAX_QUERIES_PER_TOPIC]):
@@ -174,22 +189,38 @@ class BochaSearchConnector:
                 emit_fn(f'搜索 [{i + 1}/{total_q}] "{q[:30]}"')
             items = bocha_web_search(q, count=results_per_query)
 
+            if not items:
+                logger.warning("Bocha query '%s' returned 0 results", q[:50])
+
             for item in items:
                 url = item["url"]
                 if url in seen_urls:
                     continue
                 seen_urls.add(url)
 
-                # Use summary from search API; optionally enrich with full text
-                text = item.get("summary", "") or item.get("snippet", "")
+                # Collect all available text: summary > snippet > fulltext
+                summary = (item.get("summary", "") or "").strip()
+                snippet = (item.get("snippet", "") or "").strip()
+                text = summary or snippet
+
+                # Try fulltext fetch if existing text is too short
                 if self.fetch_fulltext and len(text) < 300:
                     if emit_fn:
                         emit_fn(f"获取全文: {item['name'][:30]}")
                     fulltext = _fetch_page_text(url)
                     if fulltext and len(fulltext) > len(text):
                         text = fulltext
+                    elif not fulltext:
+                        fetch_failures += 1
 
-                if not text.strip():
+                # If fulltext failed but we have snippet, still use snippet
+                if not text and snippet:
+                    text = snippet
+
+                # Skip documents with insufficient content
+                if len(text.strip()) < self.MIN_CONTENT_LENGTH:
+                    skipped_empty += 1
+                    logger.info("Skipped low-content doc (%d chars): %s", len(text.strip()), item["name"][:50])
                     continue
 
                 pub_date = item.get("datePublished", "")
@@ -207,13 +238,17 @@ class BochaSearchConnector:
                         content_markdown=text,
                         meta={
                             "site_name": item.get("siteName", ""),
-                            "snippet": item.get("snippet", ""),
+                            "snippet": snippet,
                             "search_query": q,
+                            "content_length": len(text),
                         },
                     )
                 )
 
-        logger.info("Bocha connector: %d queries → %d unique documents", len(queries), len(docs))
+        logger.info(
+            "Bocha connector: %d queries → %d docs (skipped %d empty, %d fetch failures)",
+            len(queries), len(docs), skipped_empty, fetch_failures,
+        )
         if emit_fn:
-            emit_fn(f"搜索完成，共 {len(docs)} 篇补充文档")
+            emit_fn(f"搜索完成，共 {len(docs)} 篇补充文档（{skipped_empty} 篇内容不足已跳过）")
         return docs

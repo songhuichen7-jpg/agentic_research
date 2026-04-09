@@ -71,6 +71,8 @@ def assemble_report(
 
     for sec in sections_sorted:
         parts.append(f"## {sec.title}\n")
+        if sec.evidence_count == 0:
+            parts.append("> **注意：本章节缺乏数据来源支撑，内容仅供参考。**\n")
         parts.append(sec.markdown)
         parts.append("")
 

@@ -12,20 +12,39 @@ import json
 import logging
 import re
 
+from src.analysis.frameworks import format_frameworks_for_planner
 from src.config.llm import get_writer_llm
 from src.models import SectionPlan
 
 logger = logging.getLogger(__name__)
 
 _PLAN_PROMPT = """\
-你是一位资深行业研究分析师。用户希望你为以下行业主题制定一份研究报告的写作计划。
+你是一位顶级券商的资深行业研究分析师（10 年以上经验）。请为以下行业主题制定一份**机构级**研究报告的写作计划。
 
 行业主题：{topic}
 
-请你完成以下任务：
-1. 将主题规范化为一个明确的研究标题（包含行业名称、研究范围、截止年份）
-2. 列出 5-7 个研究子任务（task_list），覆盖行业全景
-3. 列出 4-6 个报告章节（sections），每个章节给出标题和一句话目标
+## 要求
+
+1. 将主题规范化为一个专业研究标题（格式：「XX行业深度研究：XX趋势与投资机会（2024-2028）」）
+2. 列出 6-8 个研究子任务（task_list），确保覆盖以下维度：
+   - 行业定义与产业链梳理
+   - 市场规模与增速（历史 + 预测）
+   - 驱动因素与政策环境
+   - 竞争格局与主要玩家
+   - 技术趋势或商业模式创新
+   - 风险因素与投资建议
+3. 设计 6-8 个报告章节（sections），遵循标准研报结构：
+   - 第一章：行业概览与定义（产业链、上下游关系）
+   - 第二章：市场规模与增长（TAM/SAM、历史数据、未来预测）
+   - 第三章：驱动力分析（政策、技术、需求端）
+   - 第四章：竞争格局（市场份额、头部企业对比、护城河）
+   - 第五章：产业链与价值链分析
+   - 第六章：风险与挑战
+   - 第七章：投资建议与展望
+   你可以根据具体行业调整章节，但不得少于 6 章。
+
+## 分析框架
+{frameworks}
 
 严格按以下 JSON 格式输出，不要有任何其他文字：
 ```json
@@ -33,7 +52,7 @@ _PLAN_PROMPT = """\
   "normalized_topic": "规范化研究标题",
   "task_list": ["任务1", "任务2", ...],
   "sections": [
-    {{"title": "章节标题", "objective": "一句话说明该章节要回答什么问题"}},
+    {{"title": "章节标题", "objective": "该章节需要回答的核心问题，要具体，如：量化市场规模、对比 TOP5 企业份额"}},
     ...
   ]
 }}
@@ -47,7 +66,8 @@ def plan_report(topic: str) -> dict:
     Returns dict with keys: normalized_topic, task_list, sections (list of SectionPlan).
     """
     llm = get_writer_llm(temperature=0.2)
-    resp = llm.invoke(_PLAN_PROMPT.format(topic=topic))
+    frameworks_text = format_frameworks_for_planner(topic)
+    resp = llm.invoke(_PLAN_PROMPT.format(topic=topic, frameworks=frameworks_text))
     content = resp.content.strip()
 
     # Extract JSON from possible markdown fence

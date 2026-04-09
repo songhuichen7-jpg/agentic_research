@@ -230,15 +230,19 @@ async def stream_report_events(run_id: str):
 
 
 @app.get("/api/report/{run_id}/markdown")
-def download_markdown(run_id: str):
-    """Download the generated Markdown report."""
-    path = REPORTS_DIR / f"report_{run_id}.md"
+def download_markdown(run_id: str, v: int | None = None):
+    """Download the generated Markdown report. Use ?v=N for a specific version."""
+    if v is not None:
+        path = REPORTS_DIR / f"report_{run_id}_v{v}.md"
+    else:
+        path = REPORTS_DIR / f"report_{run_id}.md"
     if not path.exists():
         raise HTTPException(404, detail="Markdown report not found (may still be generating)")
     return FileResponse(
         path,
         media_type="text/markdown; charset=utf-8",
-        filename=f"report_{run_id}.md",
+        filename=path.name,
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -277,6 +281,40 @@ def get_chart_file(run_id: str, filename: str):
     if not path.exists():
         raise HTTPException(404, detail="Chart not found")
     return FileResponse(path, media_type="image/png")
+
+
+class ReviseRequest(BaseModel):
+    message: str
+    topic: str = ""
+
+
+@app.post("/api/report/{run_id}/revise")
+def revise_report_endpoint(run_id: str, req: ReviseRequest):
+    """Revise an existing report based on user follow-up instruction.
+
+    Automatically classifies intent: 'edit' (pure rewrite) or 'research'
+    (search for new data first, then rewrite).
+    """
+    row = get_run(run_id)
+    if not row:
+        raise HTTPException(404, detail=f"Run {run_id} not found")
+
+    from src.writers.reviser import revise_report
+
+    topic = req.topic or row.get("topic", "")
+    result = revise_report(run_id, req.message, topic=topic)
+
+    if not result.get("success"):
+        raise HTTPException(400, detail=result.get("error", "修改失败"))
+
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "intent": result["intent"],
+        "summary": result.get("summary", ""),
+        "old_version": result.get("old_version"),
+        "new_version": result.get("new_version"),
+    }
 
 
 @app.get("/api/runs")

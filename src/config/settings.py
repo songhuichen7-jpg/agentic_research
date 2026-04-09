@@ -35,10 +35,10 @@ BOCHA_SEARCH_URL: str = "https://api.bochaai.com/v1/web-search"
 BOCHA_MAX_QUERIES_PER_TOPIC: int = 6
 
 # Writer model: strong at Chinese long-form generation
-WRITER_MODEL: str = "xiaomi/mimo-v2-flash"
+WRITER_MODEL: str = "deepseek/deepseek-v3.2"
 
 # Fast utility model: routing, classification, data extraction
-UTILITY_MODEL: str = "google/gemini-3.1-flash-lite-preview"
+UTILITY_MODEL: str = "google/gemini-3-flash-preview"
 
 # ── Rate limits ──────────────────────────────────────────────
 
@@ -47,8 +47,10 @@ AKSHARE_REQUEST_DELAY: float = 1.0
 
 # ── HTTP (FastAPI) ───────────────────────────────────────────
 
-# Comma-separated origins; use "*" for dev (allow all). Production: https://your.domain
-CORS_ORIGINS: list[str] = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()] or ["*"]
+# Comma-separated origins. Unset = same-origin only (safe default).
+# Dev: CORS_ORIGINS=*    Production: CORS_ORIGINS=https://your.domain
+_cors_raw = os.getenv("CORS_ORIGINS", "")
+CORS_ORIGINS: list[str] = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else []
 
 # ── Retrieval ────────────────────────────────────────────────
 

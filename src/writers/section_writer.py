@@ -13,6 +13,7 @@ import logging
 import re
 
 from src.analysis.calculator import extract_and_compute
+from src.analysis.frameworks import format_framework_for_writer
 from src.config.llm import get_writer_llm
 from src.models import Citation, DraftedSection, EvidenceChunk, SectionPlan
 from src.retrieval.citation import build_citation_list, format_citations_for_prompt
@@ -20,7 +21,7 @@ from src.retrieval.citation import build_citation_list, format_citations_for_pro
 logger = logging.getLogger(__name__)
 
 _SECTION_PROMPT = """\
-你是一位专业的行业研究分析师，正在撰写一份行业研报的某个章节。
+你是一位顶级券商的资深行业研究分析师，正在撰写一份面向机构投资者的行业深度研报。
 
 ## 研究主题
 {topic}
@@ -35,18 +36,35 @@ _SECTION_PROMPT = """\
 {evidence_block}
 
 ## 写作要求
-1. 围绕章节目标，写出 400-800 字的分析内容
-2. 每个核心观点或数据必须用 [cN] 标注来源
-3. 包含以下结构：
-   - 核心观点（1-2 句总结）
-   - 详细分析（数据支撑的展开论述）
-   - 风险与限制（如有）
-4. 在末尾用 JSON 列出适合图表化的数据建议（如果有的话），格式如下：
-   ```chart_suggestions
-   ["建议1: 描述什么数据适合做什么图", ...]
-   ```
-5. 使用 Markdown 格式，语言专业但不晦涩
 
+### 篇幅与深度
+- 本章节需要写出 **800-1500 字**的深度分析内容
+- 必须包含具体的数据、数字、百分比，不要空泛的定性描述
+- 如果资料中有具体数字（市场规模、增速、市占率等），必须引用并分析其含义
+
+### 结构规范
+请按以下结构组织内容（用 Markdown 三级标题 ### 分隔）：
+
+1. **核心观点**（2-3 句话概括本章结论，开门见山）
+2. **详细分析**（主体内容，要求：
+   - 每个论点必须有数据支撑，用 [cN] 标注来源
+   - 使用对比分析（同比、环比、国际对比、企业对比）
+   - 提供因果逻辑链，不要只罗列事实
+   - 如涉及市场规模，给出具体数字和计算逻辑
+   - 如涉及竞争格局，给出 TOP3-5 企业的份额或对比）
+3. **趋势与展望**（基于数据的前瞻判断，2-3 句）
+
+### 写作风格
+- 语言专业精炼，像券商研报而非新闻稿
+- 多用数据说话，少用"行业快速发展""前景广阔"等空话
+- 段落之间要有逻辑衔接
+
+### 图表建议
+在末尾用 JSON 列出适合图表化的数据（如果有具体数字的话），格式：
+```chart_suggestions
+["建议1: 具体描述什么数据做什么图（如：2019-2024 年市场规模柱状图）", ...]
+```
+{framework_guidance}
 只输出章节正文内容和图表建议，不要重复章节标题。
 """
 
@@ -69,11 +87,21 @@ def write_section(
     """
     from src.telemetry.run_events import emit_node_detail
 
+    evidence_count = len(evidence)
+    # Deduplicate sources for tracking
+    evidence_sources = list({c.title or c.url for c in evidence if c.title or c.url})
+
+    if evidence_count == 0:
+        logger.warning("Section '%s' has ZERO evidence — output will lack citations", section.title)
+
     citations = build_citation_list(evidence)
     evidence_block = format_citations_for_prompt(citations)
 
     if not evidence_block.strip():
-        evidence_block = "（暂无检索到的相关资料，请基于行业常识简要分析，并注明缺乏数据支撑。）"
+        evidence_block = (
+            "（暂无检索到的相关资料。请基于行业常识简要分析，"
+            "但必须在每个段落开头用 **[数据不足]** 标注，明确告知读者本段缺乏数据支撑。）"
+        )
 
     # Auto-compute metrics from evidence text
     all_evidence_text = "\n".join(c.chunk_text for c in evidence)
@@ -81,11 +109,14 @@ def write_section(
     if computed:
         evidence_block += "\n\n## 自动计算的行业指标\n" + "\n".join(computed)
 
+    framework_guidance = format_framework_for_writer(topic, section.title)
+
     prompt = _SECTION_PROMPT.format(
         topic=topic,
         section_title=section.title,
         section_objective=section.objective,
         evidence_block=evidence_block,
+        framework_guidance=framework_guidance,
     )
 
     llm = get_writer_llm(temperature=0.3)
@@ -146,4 +177,6 @@ def write_section(
         citations=citations,
         chart_suggestions=chart_suggestions,
         order=section.order,
+        evidence_count=evidence_count,
+        evidence_sources=evidence_sources,
     )

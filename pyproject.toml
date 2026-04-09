@@ -21,6 +21,7 @@ dependencies = [
     "python-dotenv",
     "fastapi",
     "uvicorn",
+    "weasyprint",
 ]
 
 [project.optional-dependencies]

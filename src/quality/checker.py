@@ -29,12 +29,23 @@ def check_report(
         issues_global.append(f"章节数不足: {len(sections)}/{min_sections}")
 
     # ── 2. Per-section checks ────────────────────────────────
+    no_evidence_count = 0
     for sec in sections:
         issues: list[str] = []
 
-        # Empty content
-        if len(sec.markdown.strip()) < 100:
+        # Empty or thin content
+        char_count = len(sec.markdown.strip())
+        if char_count < 100:
             issues.append("章节内容过短（<100字）")
+        elif char_count < 500:
+            issues.append(f"章节内容偏薄（{char_count}字，建议800+）")
+
+        # Evidence coverage check (uses new evidence_count field)
+        if sec.evidence_count == 0:
+            issues.append("无证据支撑（数据可能为编造）")
+            no_evidence_count += 1
+        elif sec.evidence_count < 3:
+            issues.append(f"证据不足（仅 {sec.evidence_count} 条）")
 
         # Citation check
         citation_refs = re.findall(r"\[c\d+\]", sec.markdown)
@@ -58,7 +69,11 @@ def check_report(
             issues=issues,
         ))
 
-    # ── 3. Chart asset check ─────────────────────────────────
+    # ── 3. Evidence coverage global ────────────────────────────
+    if no_evidence_count > 0:
+        issues_global.append(f"{no_evidence_count}/{len(sections)} 个章节无证据支撑")
+
+    # ── 4. Chart asset check ─────────────────────────────────
     ok_charts = [a for a in chart_assets if a.status == "ok"]
     failed_charts = [a for a in chart_assets if a.status != "ok"]
     if len(ok_charts) < min_charts:

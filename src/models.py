@@ -130,6 +130,8 @@ class DraftedSection(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     chart_suggestions: list[str] = Field(default_factory=list)
     order: int = 0
+    evidence_count: int = 0
+    evidence_sources: list[str] = Field(default_factory=list)
 
 
 # ── Quality check ────────────────────────────────────────────
