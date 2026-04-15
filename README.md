@@ -2,8 +2,6 @@
 
 机构级行业研报自动生成系统。基于 LangGraph 编排 9 节点流水线，结合多源数据采集、真实市场数据、智能图表规划、多轮修订和版本管理，一键生成带专业封面、执行摘要、投资评级的行业深度研报 PDF。
 
-**示例研报（PDF）：** [docs/sample-report.pdf](./docs/sample-report.pdf)
-
 ## 核心特性
 
 ### 数据与写作
@@ -26,12 +24,6 @@
 - **多轮修订**：报告生成后可发起修改对话，系统自动判断是"纯改写"还是"需补数据搜索"
 - **版本管理**：每次修改保存历史版本，可对比查看 v1 / v2 / latest
 - **苹果风格 UI**：浅色主题 + 毛玻璃侧边栏 + 暗色模式（跟随系统）+ 键盘快捷键
-
-## 演示
-
-[![演示](./docs/demo-poster.jpg)](https://github.com/songhuichen7-jpg/agentic_research/blob/master/docs/demo-preview.mp4)
-
-节选视频 [`docs/demo-preview.mp4`](./docs/demo-preview.mp4) · 完整录屏 [`演示.mov`](./演示.mov)（[Git LFS](https://git-lfs.com/)）
 
 ## 工作流水线
 
