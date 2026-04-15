@@ -21,7 +21,8 @@ from src.retrieval.citation import build_citation_list, format_citations_for_pro
 logger = logging.getLogger(__name__)
 
 _SECTION_PROMPT = """\
-你是一位顶级券商的资深行业研究分析师，正在撰写一份面向机构投资者的行业深度研报。
+你是一位顶级投行（中金/中信/高盛）的资深行业研究分析师，正在撰写面向机构投资者的行业深度研报。
+读者是基金经理、投资委员会成员，他们只读有数据、有洞察的研报，对空话和套话零容忍。
 
 ## 研究主题
 {topic}
@@ -35,37 +36,49 @@ _SECTION_PROMPT = """\
 
 {evidence_block}
 
-## 写作要求
+## 写作要求（必须严格遵守）
 
-### 篇幅与深度
-- 本章节需要写出 **800-1500 字**的深度分析内容
-- 必须包含具体的数据、数字、百分比，不要空泛的定性描述
-- 如果资料中有具体数字（市场规模、增速、市占率等），必须引用并分析其含义
+### 1. 数字密度（最重要）
+- **每段文字必须至少包含 2 个具体数字**（金额、百分比、排名、时间等）
+- **严禁使用以下模糊词汇**：较快、较高、显著、快速、巨大、广阔、强劲、不断、持续（不带数字）
+- **必须具体到**：年份、季度、金额（亿元/万元）、百分比（精确到 0.1%）、公司名称、产品型号
+- 示例：
+  - ✗ "市场规模快速增长" → ✓ "市场规模从 2020 年的 850 亿元增至 2024 年的 1,560 亿元，CAGR 16.4%"
+  - ✗ "头部企业市占率较高" → ✓ "TOP3 企业（A/B/C）合计市占率 42%（2024），较 2020 年的 28% 提升 14 pct"
+  - ✗ "行业前景广阔" → ✓ "预计 2028 年市场规模达 3,200 亿元，对应 2024-2028 CAGR 19.8%"
 
-### 结构规范
-请按以下结构组织内容（用 Markdown 三级标题 ### 分隔）：
+### 2. 结构规范（3-4 个 ### 三级小节）
+必须包含这些小节之一或组合：
+- **### 核心观点**（3-4 句话，必须带数字的结论式陈述）
+- **### 现状量化**（用数据描述当前市场规模、增速、结构）
+- **### 竞争格局 / 驱动因素 / 产业链分析**（按章节目标选择）
+- **### 趋势预判**（3-5 年前瞻，必须给出具体数字预测和时间点）
 
-1. **核心观点**（2-3 句话概括本章结论，开门见山）
-2. **详细分析**（主体内容，要求：
-   - 每个论点必须有数据支撑，用 [cN] 标注来源
-   - 使用对比分析（同比、环比、国际对比、企业对比）
-   - 提供因果逻辑链，不要只罗列事实
-   - 如涉及市场规模，给出具体数字和计算逻辑
-   - 如涉及竞争格局，给出 TOP3-5 企业的份额或对比）
-3. **趋势与展望**（基于数据的前瞻判断，2-3 句）
+### 3. 分析深度
+每个观点必须回答 **为什么** 和 **所以呢**：
+- 不是"政策支持行业发展" → 而是"《XX发展规划》明确 2025 年渗透率目标 40%（当前 18%），政策直接拉动 XX 亿元需求 [c1]"
+- 不是"竞争激烈" → 而是"TOP5 集中度从 2022 年的 58% 降至 2024 年的 49%，新进入者 12 家，头部企业价格战压缩毛利率 4.2 pct [c2]"
 
-### 写作风格
-- 语言专业精炼，像券商研报而非新闻稿
-- 多用数据说话，少用"行业快速发展""前景广阔"等空话
-- 段落之间要有逻辑衔接
+### 4. 篇幅：800-1500 字，宁精不滥
+- 字数硬要求，但不要为了凑字数写废话
+- 每句话要么有数据、要么有逻辑，否则删掉
+
+### 5. 引用规范
+- 每个数字后面必须有 [c1]、[c2] 引用标注
+- 无引用的数字会被视为编造，严重违规
 
 ### 图表建议
-在末尾用 JSON 列出适合图表化的数据（如果有具体数字的话），格式：
+**严格要求**：本章节所有正文结束后，必须用以下**精确格式**输出图表建议，禁止使用任何其他 JSON 对象形式（如 {{"图表建议": [...]}}）、禁止使用中文 key：
+
 ```chart_suggestions
-["建议1: 具体描述什么数据做什么图（如：2019-2024 年市场规模柱状图）", ...]
+["2019-2024 年市场规模柱状图", "主要企业市场份额饼图"]
 ```
+
+- 必须用 ` ```chart_suggestions ` 作为代码块标签
+- 数组元素为字符串，每个描述一个图表
+- 即使没有合适的数据也必须输出 `[]`，不要省略
 {framework_guidance}
-只输出章节正文内容和图表建议，不要重复章节标题。
+只输出章节正文内容和最后的 chart_suggestions 代码块，不要重复章节标题。
 """
 
 # How often to emit a streaming detail event (every N chars)
@@ -157,18 +170,67 @@ def write_section(
 
     # Extract chart suggestions if present
     chart_suggestions: list[str] = []
-    cs_match = re.search(r"```chart_suggestions\s*(\[.*?\])\s*```", raw, re.DOTALL)
+    markdown = raw
+
+    # 1. Try to extract from a proper fenced code block (```chart_suggestions or ```json)
+    cs_match = re.search(
+        r"```(?:chart_suggestions|json)?\s*(\[[^`]*?\])\s*```",
+        markdown,
+        re.DOTALL,
+    )
     if cs_match:
         try:
             chart_suggestions = json.loads(cs_match.group(1))
         except json.JSONDecodeError:
             pass
-        markdown = raw[: cs_match.start()].strip()
-    else:
-        markdown = raw
+        markdown = markdown[: cs_match.start()] + markdown[cs_match.end():]
 
-    # Clean up any leftover code fences
-    markdown = re.sub(r"```json\s*\[.*?\]\s*```", "", markdown, flags=re.DOTALL).strip()
+    # 2. Try to extract from a JSON object with "图表建议" / "chart_suggestions" key
+    obj_match = re.search(
+        r'```(?:json)?\s*(\{[^`]*?(?:"图表建议"|"chart_suggestions")[^`]*?\})\s*```',
+        markdown,
+        re.DOTALL,
+    )
+    if obj_match:
+        try:
+            data = json.loads(obj_match.group(1))
+            if isinstance(data, dict):
+                for key in ("图表建议", "chart_suggestions"):
+                    if key in data and isinstance(data[key], list):
+                        chart_suggestions = data[key]
+                        break
+        except json.JSONDecodeError:
+            pass
+        markdown = markdown[: obj_match.start()] + markdown[obj_match.end():]
+
+    # 3. Aggressive cleanup: remove bare JSON objects with 图表建议/chart_suggestions key
+    #    (handles unfenced output like { "图表建议": [...] })
+    markdown = re.sub(
+        r'\{\s*"(?:图表建议|chart_suggestions)"\s*:\s*\[[\s\S]*?\]\s*\}',
+        "",
+        markdown,
+    )
+
+    # 4. Aggressive cleanup: remove bare chart_suggestions label + array
+    markdown = re.sub(
+        r"chart_suggestions\s*[\n\r]*\[[\s\S]*?(?:\]|$)",
+        "",
+        markdown,
+        flags=re.IGNORECASE,
+    )
+
+    # 5. Remove "图表建议" heading/label followed by a list or JSON
+    markdown = re.sub(
+        r"(?:^|\n)\s*#{0,4}\s*图表建议[：:\s]*\n?\s*[\[\{][\s\S]*?[\]\}]",
+        "",
+        markdown,
+    )
+
+    # 6. Remove any stray triple-backtick fences with just "chart_suggestions" or "json" label
+    markdown = re.sub(r"```(?:chart_suggestions|json)?\s*$", "", markdown, flags=re.MULTILINE)
+    # 7. Remove trailing orphan code fences
+    markdown = re.sub(r"\n\s*```\s*$", "", markdown)
+    markdown = markdown.strip()
 
     return DraftedSection(
         section_id=section.section_id,

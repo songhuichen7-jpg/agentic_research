@@ -406,6 +406,19 @@ export default function App() {
                 </div>
               )}
 
+              {/* AI progress message — show placeholder while waiting for first SSE event */}
+              {!!runId && !showResult && !pipelineActive && (
+                <div className="msg msg--ai">
+                  <div className="msg__avatar">{avatarSvg}</div>
+                  <div className="msg__bubble">
+                    <div className="revision-loading">
+                      <div className="spinner" />
+                      <span>正在启动研报生成…</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* AI progress message */}
               {pipelineActive && (
                 <div className="msg msg--ai">

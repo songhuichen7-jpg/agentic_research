@@ -28,19 +28,55 @@ def _setup_chinese_font() -> None:
     if system == "Darwin":
         candidates = ["PingFang SC", "Heiti SC", "STHeiti", "Arial Unicode MS"]
     elif system == "Linux":
-        candidates = ["WenQuanYi Micro Hei", "Noto Sans CJK SC", "SimHei"]
+        candidates = [
+            "Noto Sans CJK SC",
+            "Noto Sans CJK JP",
+            "Noto Serif CJK SC",
+            "Noto Sans SC",
+            "WenQuanYi Micro Hei",
+            "WenQuanYi Zen Hei",
+            "SimHei",
+        ]
     else:
         candidates = ["SimHei", "Microsoft YaHei"]
-    from matplotlib.font_manager import fontManager
+
+    from matplotlib.font_manager import fontManager, findSystemFonts
+
+    # Force rebuild font cache to pick up newly installed fonts in Docker
+    try:
+        fontManager.addfont  # type: ignore
+        for font_path in findSystemFonts(fontpaths=None, fontext="ttf") + findSystemFonts(
+            fontpaths=None, fontext="otf"
+        ):
+            try:
+                fontManager.addfont(font_path)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug("Font cache rebuild failed: %s", e)
 
     available = {f.name for f in fontManager.ttflist}
+    logger.info("Available fonts containing 'Noto' or 'CJK': %s",
+                [n for n in available if "Noto" in n or "CJK" in n or "Hei" in n][:10])
+
+    # Exact match first
     for font in candidates:
         if font in available:
             plt.rcParams["font.sans-serif"] = [font, "DejaVu Sans"]
             plt.rcParams["axes.unicode_minus"] = False
-            logger.info("Using Chinese font: %s", font)
+            logger.info("Using Chinese font (exact): %s", font)
             return
-    logger.warning("No CJK font found")
+
+    # Fuzzy match: any font containing CJK-related keywords
+    for keyword in ["Noto Sans CJK", "Noto Serif CJK", "Noto Sans SC", "Noto", "CJK", "Hei"]:
+        for font_name in available:
+            if keyword in font_name:
+                plt.rcParams["font.sans-serif"] = [font_name, "DejaVu Sans"]
+                plt.rcParams["axes.unicode_minus"] = False
+                logger.info("Using Chinese font (fuzzy match '%s'): %s", keyword, font_name)
+                return
+
+    logger.warning("No CJK font found. Available sample: %s", list(available)[:20])
     plt.rcParams["axes.unicode_minus"] = False
 
 

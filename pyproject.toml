@@ -22,10 +22,11 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "weasyprint",
+    "pymupdf",
+    "pdf4llm",
 ]
 
 [project.optional-dependencies]
-pdf = ["pymupdf", "pdf4llm"]
 dev = ["pytest", "ruff"]
 
 [tool.ruff]

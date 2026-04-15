@@ -14,6 +14,7 @@ export function CanvasPanel({
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
   const [headings, setHeadings] = useState<string[]>([]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -22,39 +23,113 @@ export function CanvasPanel({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-    fetch(mdUrl, { cache: "no-store" })
-      .then((r) => {
-        if (!r.ok) throw new Error("无法加载报告");
-        return r.text();
-      })
-      .then((md) => {
-        if (!cancelled) {
+    const fetchMarkdown = async (isPoll = false) => {
+      if (!isPoll) {
+        setLoading(true);
+        setError(null);
+        setGenerating(false);
+      }
+
+      try {
+        // Check run status first
+        const statusRes = await fetch(`${base}`, { cache: "no-store" });
+        const status = statusRes.ok ? (await statusRes.json()).status : null;
+
+        const mdRes = await fetch(mdUrl, { cache: "no-store" });
+        if (mdRes.ok) {
+          const md = await mdRes.text();
+          if (cancelled) return;
           setMarkdown(md);
-          setHeadings((md.match(/^## .+$/gm) || []).map(h => h.replace('## ', '')));
+          setHeadings((md.match(/^## .+$/gm) || []).map((h) => h.replace("## ", "")));
+          setGenerating(false);
+          setError(null);
+          setLoading(false);
+          return;
         }
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+
+        // Markdown not ready — check if run is still in progress
+        if (cancelled) return;
+        if (status === "running") {
+          setGenerating(true);
+          setError(null);
+          setLoading(false);
+          // Poll again in 3 seconds
+          pollTimer = setTimeout(() => fetchMarkdown(true), 3000);
+        } else if (status === "failed") {
+          setError("研报生成失败");
+          setGenerating(false);
+          setLoading(false);
+        } else if (status === "cancelled") {
+          setError("研报生成已取消");
+          setGenerating(false);
+          setLoading(false);
+        } else {
+          setError("无法加载报告");
+          setGenerating(false);
+          setLoading(false);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setError((e as Error).message || "无法加载报告");
+        setLoading(false);
+      }
+    };
+
+    fetchMarkdown();
 
     return () => {
       cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
     };
-  }, [runId, mdUrl]);
+  }, [runId, mdUrl, base]);
 
-  // Map local chart image paths in markdown to API URLs
-  const processedMarkdown = markdown
-    ? markdown.replace(
-        /!\[([^\]]*)\]\(charts\/([^)]+)\)/g,
-        `![$1](${base}/charts/$2)`,
-      )
-    : "";
+  /** Strip a balanced `<div class="CLASSNAME">...</div>` block with proper nesting. */
+  function stripBalancedDiv(text: string, className: string): string {
+    const openPattern = new RegExp(`<div\\s+class="${className}"[^>]*>`, "i");
+    let result = text;
+    let match = result.match(openPattern);
+    while (match && match.index !== undefined) {
+      const startIdx = match.index;
+      const tagRe = /<\/?div\b[^>]*>/gi;
+      tagRe.lastIndex = startIdx;
+      let depth = 0;
+      let endIdx = -1;
+      let m: RegExpExecArray | null;
+      while ((m = tagRe.exec(result)) !== null) {
+        if (m[0].startsWith("</")) {
+          depth--;
+          if (depth === 0) {
+            endIdx = m.index + m[0].length;
+            break;
+          }
+        } else {
+          depth++;
+        }
+      }
+      if (endIdx === -1) break; // unbalanced, give up
+      result = result.slice(0, startIdx) + result.slice(endIdx);
+      match = result.match(openPattern);
+    }
+    return result;
+  }
+
+  // Process markdown for preview:
+  //  - Remove raw HTML blocks (cover page div, disclaimer div) that are PDF-only
+  //  - Map local chart image paths to API URLs
+  let cleaned = markdown || "";
+  cleaned = stripBalancedDiv(cleaned, "cover");
+  cleaned = stripBalancedDiv(cleaned, "disclaimer");
+  // Strip any remaining cover__* classed elements (safety net)
+  cleaned = cleaned.replace(/<[^>]*class="cover__[^"]*"[^>]*>[\s\S]*?<\/[^>]+>/g, "");
+  // Strip standalone div/section/figure opening/closing tags
+  cleaned = cleaned.replace(/<\/?(?:div|section|figure)\b[^>]*>/g, "");
+  // Map chart paths to API URLs
+  const processedMarkdown = cleaned.replace(
+    /!\[([^\]]*)\]\(charts\/([^)]+)\)/g,
+    `![$1](${base}/charts/$2)`,
+  );
 
   /** Render inline citation refs [c1] [c2] as superscript badges */
   function renderTextWithCitations(text: string): React.ReactNode {
@@ -132,11 +207,21 @@ export function CanvasPanel({
             <span>加载报告中…</span>
           </div>
         )}
-        {error && <div className="canvas__error">{error}</div>}
-        {!loading && !error && markdown && (
+        {generating && !markdown && (
+          <div className="canvas__loading">
+            <div className="spinner" />
+            <div className="canvas__generating">
+              <div className="canvas__generating-title">研报正在生成中…</div>
+              <div className="canvas__generating-desc">
+                请稍候，完成后将自动刷新此页面
+              </div>
+            </div>
+          </div>
+        )}
+        {error && !generating && <div className="canvas__error">{error}</div>}
+        {!loading && !error && !generating && markdown && (
           <div className="canvas__layout">
             <article className="canvas__article">
-              {/* @ts-expect-error react-markdown types mismatch with React 18 */}
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{

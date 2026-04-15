@@ -289,43 +289,68 @@ def node_build_evidence(state: WorkflowState) -> dict:
 
 
 def node_write_sections(state: WorkflowState) -> dict:
-    """Write all sections with evidence retrieval.
+    """Write all sections in parallel with evidence retrieval.
 
+    Uses ThreadPoolExecutor to call LLM for all sections concurrently.
     Resilient: individual section failures produce a stub instead of aborting.
     """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     run_id = state.get("run_id", "")
     emit_node_start(run_id, "write_sections")
-    logger.info("=== Node: Write Sections ===")
+    logger.info("=== Node: Write Sections (parallel) ===")
 
     try:
         retriever: HybridRetriever = _RUNTIME_CACHE["retriever"]
         topic = state.get("normalized_topic", state["user_query"])
         sections = state.get("section_plans", [])
-        drafted: list[DraftedSection] = []
+        total = len(sections)
 
-        for i, sec in enumerate(sections):
+        completed_count = 0
+        completed_lock = threading.Lock()
+
+        def write_one(idx_sec):
+            idx, sec = idx_sec
             if is_cancelled(run_id):
                 raise RunCancelled()
-            logger.info("[Section %d/%d] %s", i + 1, len(sections), sec.title)
-            emit_node_detail(run_id, "write_sections", f"[{i + 1}/{len(sections)}] 开始「{sec.title}」")
             try:
                 query = f"{topic} {sec.title} {sec.objective}"
                 evidence = retriever.retrieve(query, top_k=10)
                 draft = write_section(topic, sec, evidence, run_id=run_id, node="write_sections")
-                drafted.append(draft)
+                return idx, draft
             except Exception as e:
                 logger.error("Section '%s' failed: %s — inserting stub", sec.title, e)
-                drafted.append(
-                    DraftedSection(
-                        section_id=sec.section_id,
-                        title=sec.title,
-                        markdown=f"*（本章节生成失败：{e}）*",
-                        order=sec.order,
-                        evidence_count=0,
-                    )
+                return idx, DraftedSection(
+                    section_id=sec.section_id,
+                    title=sec.title,
+                    markdown=f"*（本章节生成失败：{e}）*",
+                    order=sec.order,
+                    evidence_count=0,
                 )
 
-        # Log evidence coverage summary
+        # Run all sections concurrently (max 6 workers to avoid rate limits)
+        results: dict[int, DraftedSection] = {}
+        max_workers = min(total, 6)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = {pool.submit(write_one, (i, sec)): i for i, sec in enumerate(sections)}
+            for fut in as_completed(futures):
+                if is_cancelled(run_id):
+                    raise RunCancelled()
+                idx, draft = fut.result()
+                results[idx] = draft
+                with completed_lock:
+                    completed_count += 1
+                    n = completed_count
+                logger.info("[Section %d/%d done] %s", n, total, draft.title)
+                emit_node_detail(
+                    run_id, "write_sections",
+                    f"[{n}/{total}] 完成「{draft.title}」",
+                )
+
+        # Restore original order
+        drafted = [results[i] for i in range(total)]
+
         no_evidence = [d.title for d in drafted if d.evidence_count == 0]
         if no_evidence:
             logger.warning("Sections with ZERO evidence: %s", no_evidence)
@@ -334,7 +359,7 @@ def node_write_sections(state: WorkflowState) -> dict:
                 f"警告：{len(no_evidence)} 个章节无证据支撑：{', '.join(no_evidence)}",
             )
 
-        emit_node_end(run_id, "write_sections", detail=f"{len(drafted)} 节")
+        emit_node_end(run_id, "write_sections", detail=f"{len(drafted)} 节（并行）")
         return {"drafted_sections": drafted}
     except Exception as e:
         emit_node_error(run_id, "write_sections", str(e))
@@ -352,10 +377,11 @@ def node_plan_and_render_charts(state: WorkflowState) -> dict:
 
     try:
         sections = state.get("drafted_sections", [])
+        topic = state.get("normalized_topic") or state.get("user_query", "")
         emit_node_detail(run_id, "charts", f"正在从 {len(sections)} 个章节中规划图表…")
 
-        # Full-report aggregation: one LLM call over all sections + heuristic fallback
-        all_specs = plan_charts_for_sections(sections)
+        # Full-report aggregation: real data (AkShare) + LLM extraction
+        all_specs = plan_charts_for_sections(sections, topic=topic)
 
         logger.info("Chart planner produced %d specs total", len(all_specs))
 

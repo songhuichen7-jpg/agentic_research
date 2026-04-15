@@ -1,6 +1,12 @@
-"""Report Assembler — merges sections, charts, and citations into a final report.
+"""Report Assembler — merges sections, charts, citations into an institutional-style report.
 
-Design doc §6.9: cover page, abstract, chapters, references.
+Structure:
+  1. Cover page (professional layout with title, date, rating)
+  2. Table of contents
+  3. Executive summary (thesis, highlights, key metrics table, rating)
+  4. Main sections (with embedded charts)
+  5. References
+  6. Disclaimer
 """
 
 from __future__ import annotations
@@ -11,6 +17,10 @@ from pathlib import Path
 
 from src.config.settings import REPORTS_DIR
 from src.models import ChartAsset, Citation, DraftedSection
+from src.writers.executive_summary import (
+    format_executive_summary_markdown,
+    generate_executive_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +36,42 @@ def _deduplicate_citations(sections: list[DraftedSection]) -> list[Citation]:
     return list(seen.values())
 
 
+def _build_cover_html(normalized_topic: str, topic: str, run_id: str, rating: str = "") -> str:
+    """Build the HTML cover page block (inserted as raw HTML in the Markdown)."""
+    date_str = datetime.now().strftime("%Y年%m月%d日")
+    date_short = datetime.now().strftime("%Y.%m")
+
+    rating_display = rating if rating else "深度研究"
+
+    return f"""<div class="cover">
+  <div class="cover__brand">
+    <div class="cover__brand-name">RESEARCH · 研究报告</div>
+    <div class="cover__brand-tag">INSTITUTIONAL RESEARCH<br>行业深度研究</div>
+  </div>
+  <div class="cover__title-block">
+    <div class="cover__label">INDUSTRY DEEP DIVE · 行业深度</div>
+    <h1 class="cover__main-title">{normalized_topic}</h1>
+    <div class="cover__rule"></div>
+    <div class="cover__subtitle">{topic} · {date_short}</div>
+  </div>
+  <div class="cover__meta">
+    <div class="cover__meta-item">
+      <div class="cover__meta-label">报告日期</div>
+      <div class="cover__meta-value">{date_str}</div>
+    </div>
+    <div class="cover__meta-item">
+      <div class="cover__meta-label">研究类型</div>
+      <div class="cover__meta-value">{rating_display}</div>
+    </div>
+    <div class="cover__meta-item">
+      <div class="cover__meta-label">报告编号</div>
+      <div class="cover__meta-value">{run_id or "—"}</div>
+    </div>
+  </div>
+</div>
+"""
+
+
 def assemble_report(
     topic: str,
     normalized_topic: str,
@@ -33,7 +79,7 @@ def assemble_report(
     chart_assets: list[ChartAsset],
     run_id: str = "",
 ) -> str:
-    """Assemble the final Markdown report.
+    """Assemble the final Markdown report with institutional research format.
 
     Returns the full Markdown string and writes it to data/reports/.
     """
@@ -46,33 +92,46 @@ def assemble_report(
         if asset.status == "ok" and asset.file_path:
             chart_map[asset.chart_id] = asset
 
+    # Generate executive summary (can be None if LLM fails)
+    exec_summary = generate_executive_summary(normalized_topic or topic, sections_sorted)
+
     parts: list[str] = []
 
-    # ── Cover page ───────────────────────────────────────────
-    parts.append(f"# {normalized_topic}\n")
-    parts.append(f"> 生成日期: {datetime.now().strftime('%Y-%m-%d')}")
-    parts.append(f"> 研究主题: {topic}")
-    if run_id:
-        parts.append(f"> 运行编号: {run_id}")
-    parts.append("")
-    parts.append("---\n")
+    # ── 1. Cover page (HTML block — rendered only in PDF) ───
+    rating = exec_summary.get("rating", "") if exec_summary else ""
+    cover_html = _build_cover_html(normalized_topic, topic, run_id, rating)
+    parts.append(cover_html)
 
-    # ── Table of contents ────────────────────────────────────
+    # ── 2. Table of contents ────────────────────────────────
     parts.append("## 目录\n")
-    for i, sec in enumerate(sections_sorted, 1):
-        parts.append(f"{i}. [{sec.title}](#{_slug(sec.title)})")
-    parts.append(f"{len(sections_sorted) + 1}. [参考资料](#参考资料)")
+    toc_items: list[str] = []
+    if exec_summary:
+        toc_items.append("执行摘要")
+    for sec in sections_sorted:
+        toc_items.append(sec.title)
+    toc_items.append("参考资料")
+
+    for title in toc_items:
+        parts.append(f"1. [{title}](#{_slug(title)})")
     parts.append("")
     parts.append("---\n")
 
-    # ── Sections ─────────────────────────────────────────────
+    # ── 3. Executive summary ────────────────────────────────
+    if exec_summary:
+        parts.append(format_executive_summary_markdown(exec_summary, normalized_topic))
+        parts.append("")
+        parts.append("---\n")
+    else:
+        logger.warning("No executive summary generated — skipping")
+
+    # ── 4. Main sections with embedded charts ──────────────
     chart_counter = 0
     placed_chart_ids: set[str] = set()
 
     for sec in sections_sorted:
         parts.append(f"## {sec.title}\n")
         if sec.evidence_count == 0:
-            parts.append("> **注意：本章节缺乏数据来源支撑，内容仅供参考。**\n")
+            parts.append("> **注意**：本章节缺乏数据来源支撑，内容仅供参考。\n")
         parts.append(sec.markdown)
         parts.append("")
 
@@ -98,11 +157,11 @@ def assemble_report(
             rel_path = Path(asset.file_path).name
             caption = asset.spec.caption if asset.spec else ""
             parts.append(f"![图{chart_counter}: {caption}](charts/{rel_path})")
-            parts.append(f"*图{chart_counter}: {asset.spec.title if asset.spec else ''}*\n")
+            parts.append(f"*图 {chart_counter}　{asset.spec.title if asset.spec else ''}*\n")
 
         parts.append("")
 
-    # ── References ───────────────────────────────────────────
+    # ── 5. References ───────────────────────────────────────
     parts.append("---\n")
     parts.append("## 参考资料\n")
     if all_citations:
@@ -119,9 +178,15 @@ def assemble_report(
         parts.append("*暂无参考资料*")
     parts.append("")
 
-    # ── Disclaimer ───────────────────────────────────────────
+    # ── 6. Disclaimer ───────────────────────────────────────
     parts.append("---\n")
-    parts.append("*本报告由 AI 自动生成，数据和结论仅供参考，不构成投资建议。*\n")
+    parts.append(
+        '<div class="disclaimer">'
+        "本报告由 AI 系统基于公开信息自动生成，所涉及数据、观点及结论仅供参考，"
+        "不构成任何投资建议。投资有风险，决策需谨慎。"
+        "报告使用者应自行判断并承担相应责任。"
+        "</div>\n"
+    )
 
     report_md = "\n".join(parts)
 

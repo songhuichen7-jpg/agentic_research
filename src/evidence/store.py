@@ -13,15 +13,28 @@ from pathlib import Path
 from typing import Sequence
 
 import chromadb
-from chromadb.config import Settings as ChromaSettings
+from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 
-from src.config.settings import EVIDENCE_DIR
+from src.config.settings import EMBEDDING_MODEL, EVIDENCE_DIR, OPENROUTER_API_KEY, OPENROUTER_BASE_URL
 from src.evidence.chunker import chunk_documents
 from src.models import Document, EvidenceChunk
 
 logger = logging.getLogger(__name__)
 
 _COLLECTION_NAME = "evidence_chunks"
+
+
+def _get_embedding_fn():
+    """Return API embedding function if configured, else None (Chroma default)."""
+    if not EMBEDDING_MODEL or not OPENROUTER_API_KEY:
+        logger.info("Using Chroma default embedding (all-MiniLM-L6-v2)")
+        return None
+    logger.info("Using API embedding: %s via %s", EMBEDDING_MODEL, OPENROUTER_BASE_URL)
+    return OpenAIEmbeddingFunction(
+        api_key=OPENROUTER_API_KEY,
+        api_base=OPENROUTER_BASE_URL,
+        model_name=EMBEDDING_MODEL,
+    )
 
 
 class EvidenceStore:
@@ -31,10 +44,11 @@ class EvidenceStore:
         persist_dir = str(persist_dir or EVIDENCE_DIR / "chroma")
         Path(persist_dir).mkdir(parents=True, exist_ok=True)
         self._client = chromadb.PersistentClient(path=persist_dir)
-        self._collection = self._client.get_or_create_collection(
-            name=_COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
+        embed_fn = _get_embedding_fn()
+        collection_kwargs: dict = {"name": _COLLECTION_NAME, "metadata": {"hnsw:space": "cosine"}}
+        if embed_fn is not None:
+            collection_kwargs["embedding_function"] = embed_fn
+        self._collection = self._client.get_or_create_collection(**collection_kwargs)
         self._chunks_by_id: dict[str, EvidenceChunk] = {}
 
     # ── Ingest ───────────────────────────────────────────────

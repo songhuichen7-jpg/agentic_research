@@ -23,10 +23,12 @@ REPORTS_DIR = DATA_DIR / "reports"
 DB_PATH = _PROJECT_ROOT / "db" / "app.db"
 CACHE_DIR = _PROJECT_ROOT / "cache"
 
-# ── OpenRouter ───────────────────────────────────────────────
+# ── LLM Provider (OpenAI-compatible) ─────────────────────────
 
+# Supports OpenRouter, 小爱 (Xiaoai), or any OpenAI-compatible endpoint.
+# Set OPENROUTER_API_KEY in .env (the name is kept for backward compat).
 OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+OPENROUTER_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://xiaoai.plus/v1")
 
 # ── Bocha Search ─────────────────────────────────────────────
 
@@ -35,10 +37,10 @@ BOCHA_SEARCH_URL: str = "https://api.bochaai.com/v1/web-search"
 BOCHA_MAX_QUERIES_PER_TOPIC: int = 6
 
 # Writer model: strong at Chinese long-form generation
-WRITER_MODEL: str = "deepseek/deepseek-v3.2"
+WRITER_MODEL: str = os.getenv("WRITER_MODEL", "gpt-4o")
 
 # Fast utility model: routing, classification, data extraction
-UTILITY_MODEL: str = "google/gemini-3-flash-preview"
+UTILITY_MODEL: str = os.getenv("UTILITY_MODEL", "gpt-4o")
 
 # ── Rate limits ──────────────────────────────────────────────
 
@@ -57,3 +59,7 @@ CORS_ORIGINS: list[str] = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 CHUNK_MIN_LENGTH: int = 200
 CHUNK_MAX_LENGTH: int = 1200
 RETRIEVAL_TOP_K: int = 8
+
+# Embedding model for vector store (OpenAI-compatible API)
+# Set to "" to use Chroma's local default (all-MiniLM-L6-v2)
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")

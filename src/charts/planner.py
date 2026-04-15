@@ -14,7 +14,7 @@ import logging
 import re
 import uuid
 
-from src.config.llm import get_utility_llm
+from src.config.llm import get_writer_llm
 from src.models import ChartSpec, ChartType, DraftedSection
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ _CHART_TYPE_MAP = {
 # ── LLM prompt (full report) ─────────────────────────────
 
 _FULL_PROMPT = """\
-你是一位数据可视化专家。以下是一份完整行业研报的所有章节内容，请从中识别适合用图表展示的数据，生成 3-5 个图表。
+你是一位资深数据可视化专家。以下是完整行业研报，请识别**真实出现的数值数据**，生成 3-5 个高质量图表。
 
 ## 研究主题
 {topic}
@@ -40,32 +40,42 @@ _FULL_PROMPT = """\
 {full_text}
 
 ## 严格要求
-1. 只提取有具体数值的数据（禁止编造数字）
-2. **每个图表必须至少有 2 个数据点**，单个数字不能画图
-3. 优先提取以下类型的数据（按价值排序）：
-   a. 多年市场规模/产值/需求量趋势 → line chart
-   b. 多家企业/产品/区域的对比排名 → bar chart
-   c. 市场份额/占比分布（至少 2 项，总和≈100%）→ pie chart
-   d. 多维度指标对比 → table
-4. 可以跨章节合并数据（例如第 2 章提到 2023 年规模，第 4 章提到 2025 年预测 → 合并成趋势图）
-5. 如果全文都没有可图表化的数据，返回空数组 []
-6. 输出格式：
+
+### 数据真实性（最重要）
+1. **只提取原文中真实出现的具体数值**，禁止推断、估算、编造任何数字
+2. 每个数据点必须能在原文中找到对应句子
+3. **绝对禁止输出 y 值为 0 或全部接近 0 的图表**
+4. **禁止把年份、序号、引用编号（如 c1 中的 1）当作数值**
+5. 如果某类型数据不足，宁可不生成，也不要编造
+
+### 图表类型选择
+按优先级：
+- **line（趋势图）**: 多个连续年份的市场规模/产值/销量，至少 3 个年份
+- **bar（柱状图）**: 企业/区域/产品对比，至少 3 个数据点
+- **pie（饼图）**: 市场份额占比，总和接近 100%，至少 3 项
+- **stacked_bar（堆叠柱）**: 多年份 × 多类别
+- **table（表格）**: 最后选项
+
+### 输出规则
+- **只输出 JSON 数组**，不要有其他文字
+- 至少 3 个图表
+- y 数组必须是纯数字 float
+- 不同图表不要展示重复数据
+- 标题要具体清晰（如"2019-2024年中国人形机器人市场规模趋势"）
 
 ```json
 [
   {{
-    "chart_type": "bar|line|pie|stacked_bar|table",
-    "title": "图表标题",
-    "x": ["标签1", "标签2", ...],
-    "y": [数值1, 数值2, ...],
-    "unit": "单位（如亿元、%、万台）",
+    "chart_type": "line",
+    "title": "具体清晰的图表标题",
+    "x": ["2019年", "2020年", "2021年", "2022年", "2023年"],
+    "y": [12.5, 18.3, 25.7, 35.2, 48.9],
+    "unit": "亿元",
     "caption": "一句话说明图表含义",
     "source_refs": ["c1"]
   }}
 ]
 ```
-
-只输出 JSON 数组，不要有任何其他文字。至少尝试生成 2 个图表，实在没有才返回 []。
 """
 
 
@@ -103,6 +113,18 @@ def _validate_specs(items: list[dict]) -> list[ChartSpec]:
             continue
         if len(x) < 2 and ct in (ChartType.BAR, ChartType.LINE, ChartType.PIE, ChartType.STACKED_BAR):
             continue
+
+        # Reject charts where all values are zero or near-zero (meaningless data)
+        if ct in (ChartType.BAR, ChartType.LINE, ChartType.PIE, ChartType.STACKED_BAR, ChartType.KPI):
+            if all(abs(v) < 0.001 for v in y):
+                logger.warning("Rejecting chart '%s': all y-values are zero", item.get("title", ""))
+                continue
+            # Reject if too many zeros (> 50%)
+            zero_count = sum(1 for v in y if abs(v) < 0.001)
+            if zero_count > len(y) / 2:
+                logger.warning("Rejecting chart '%s': %d/%d zero values", item.get("title", ""), zero_count, len(y))
+                continue
+
         if ct == ChartType.PIE:
             s = sum(y)
             if s > 0 and (s < 50 or s > 200):
@@ -520,7 +542,7 @@ def plan_charts(section: DraftedSection) -> list[ChartSpec]:
     """Legacy: plan charts from a single section (kept for backward compat)."""
     if not section.markdown.strip():
         return []
-    llm = get_utility_llm(temperature=0)
+    llm = get_writer_llm(temperature=0.1)
     resp = llm.invoke(
         _FULL_PROMPT.format(
             topic="",
@@ -530,73 +552,82 @@ def plan_charts(section: DraftedSection) -> list[ChartSpec]:
     return _validate_specs(_parse_llm_json(resp.content.strip()))
 
 
-def plan_charts_for_sections(sections: list[DraftedSection]) -> list[ChartSpec]:
-    """Plan charts from ALL sections in a single LLM call + heuristic fallback."""
+def plan_charts_for_sections(
+    sections: list[DraftedSection],
+    topic: str = "",
+) -> list[ChartSpec]:
+    """Plan high-quality charts combining real market data + LLM extraction.
+
+    Strategy:
+      1. **Real data first**: fetch up to 2 charts from AkShare (sector index, top holdings)
+      2. **LLM extraction**: scan report text for numeric data, get up to 3 more charts
+      3. **Max 4 charts total**, strictly validated
+      4. No KPI/chain/matrix/wordcloud auto-adds (low quality)
+    """
     if not sections:
         return []
 
-    # ── 1. Concatenate all markdown ──────────────────────
+    # ── 1. Real market data charts (AkShare) ─────────────
+    specs: list[ChartSpec] = []
+    if topic:
+        try:
+            from src.charts.real_data import fetch_real_data_charts
+            real_charts = fetch_real_data_charts(topic)
+            specs.extend(real_charts)
+            logger.info("Real data charts: %d", len(real_charts))
+        except Exception as e:
+            logger.warning("Real data fetch failed: %s", e)
+
+    # ── 2. Concatenate all markdown for LLM scan ─────────
     full_text_parts: list[str] = []
     for sec in sections:
         if sec.markdown.strip():
             full_text_parts.append(f"### {sec.title}\n{sec.markdown}")
     if not full_text_parts:
-        return []
+        return specs  # Return whatever real data we got
 
     full_text = "\n\n".join(full_text_parts)
 
-    # ── 2. LLM full-report scan ──────────────────────────
-    topic_guess = sections[0].title if sections else ""
-    specs: list[ChartSpec] = []
-    try:
-        llm = get_utility_llm(temperature=0)
-        resp = llm.invoke(
-            _FULL_PROMPT.format(
-                topic=topic_guess,
-                full_text=full_text[:8000],
+    # ── 3. LLM extraction (at most 3 more charts, for a total of ~4) ──
+    remaining = max(0, 4 - len(specs))
+    if remaining > 0:
+        topic_guess = topic or (sections[0].title if sections else "")
+        try:
+            llm = get_writer_llm(temperature=0.1)
+            resp = llm.invoke(
+                _FULL_PROMPT.format(
+                    topic=topic_guess,
+                    full_text=full_text[:10000],
+                )
             )
-        )
-        items = _parse_llm_json(resp.content.strip())
-        specs = _validate_specs(items)
-        logger.info("LLM full-report scan produced %d chart(s)", len(specs))
-    except Exception as e:
-        logger.warning("LLM chart planning failed: %s", e)
+            items = _parse_llm_json(resp.content.strip())
+            llm_specs = _validate_specs(items)
 
-    # ── 3. Heuristic supplement (data charts) ─────────────
+            # Dedup against real data charts
+            existing_titles = {re.sub(r"\s+", "", s.title).lower() for s in specs}
+            for spec in llm_specs[:remaining]:
+                norm = re.sub(r"\s+", "", spec.title).lower()
+                if not any(norm == t or norm in t or t in norm for t in existing_titles):
+                    specs.append(spec)
+                    existing_titles.add(norm)
+            logger.info("LLM chart planner produced %d valid chart(s)", len(llm_specs))
+        except Exception as e:
+            logger.warning("LLM chart planning failed: %s", e)
+
+    # ── 4. Data heuristics fallback (only if still < 2) ──
     if len(specs) < 2:
         heuristic = _heuristic_extract(full_text)
         existing_titles = {re.sub(r"\s+", "", s.title).lower() for s in specs}
         for h in heuristic:
+            if len(specs) >= 3:
+                break
             norm = re.sub(r"\s+", "", h.title).lower()
             if not any(norm == t or norm in t or t in norm for t in existing_titles):
                 specs.append(h)
                 existing_titles.add(norm)
+                logger.info("Added heuristic chart: %s", h.title)
 
-    # ── 4. Non-numeric visuals (always try) ───────────────
-    existing_types = {s.chart_type for s in specs}
-
-    if ChartType.TIMELINE not in existing_types:
-        specs.extend(_heuristic_timeline(full_text))
-
-    if ChartType.WORDCLOUD not in existing_types:
-        specs.extend(_heuristic_wordcloud(full_text))
-
-    if ChartType.KPI not in existing_types:
-        specs.extend(_heuristic_kpi(full_text))
-
-    if ChartType.CHAIN not in existing_types:
-        specs.extend(_heuristic_chain(full_text))
-
-    if ChartType.MATRIX not in existing_types:
-        specs.extend(_heuristic_matrix(full_text))
-
-    # ── 4. Fallback: summary table if still empty ────────
-    if not specs:
-        specs = _fallback_summary_table(full_text)
-        if specs:
-            logger.info("Fallback: generated summary table with %d items", len(specs[0].x))
-
-    # ── 5. Final dedup ───────────────────────────────────
-    specs = _deduplicate_charts(specs)
-    logger.info("Final chart count: %d", len(specs))
+    # ── 5. Hard cap at 4 charts ──────────────────────────
+    specs = _deduplicate_charts(specs)[:4]
+    logger.info("Final chart count: %d (real + LLM, max 4)", len(specs))
     return specs

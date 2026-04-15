@@ -25,10 +25,12 @@ RUN cd frontend && npm run build
 # ── Runtime stage ───────────────────────────────────────────────
 FROM python:3.12-slim
 
-# WeasyPrint 运行时依赖 (Debian Bookworm)
+# WeasyPrint 运行时依赖 + 中文字体 (Debian Bookworm)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpangocairo-1.0-0 libpango-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+    fonts-noto-cjk fonts-noto-cjk-extra \
+    && rm -rf /var/lib/apt/lists/* \
+    && fc-cache -fv
 
 WORKDIR /app
 
@@ -39,8 +41,9 @@ COPY --from=builder /app/frontend/dist ./frontend/dist
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/pyproject.toml ./
 
-# 创建运行时目录
-RUN mkdir -p data/raw data/parsed data/evidence data/charts data/reports data/runs db cache
+# 创建运行时目录 + 清空 matplotlib 字体缓存（让容器启动时重建以识别新字体）
+RUN mkdir -p data/raw data/parsed data/evidence data/charts data/reports data/runs db cache \
+    && rm -rf /root/.cache/matplotlib 2>/dev/null || true
 
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8080
